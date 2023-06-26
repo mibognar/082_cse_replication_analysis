@@ -12,11 +12,21 @@ library(tidyverse)
 library(papaja)
 library(lme4)
 library(lmerTest)
+library(rstatix)
 ```
 
 ## Loading data
 ```{r}
-source_data = read.csv("data/pilot_data.csv")
+source_data = read.csv("data/082_hungarian_source.csv")
+
+source_data = source_data %>% 
+  group_by(participant_id) %>% 
+  mutate(id = cur_group_id()) %>% 
+  ungroup()
+
+pilot_sample = source_data %>% 
+  filter(id<16)
+  
 ```
 
 ## Demographic analysis
@@ -25,8 +35,9 @@ source_data = read.csv("data/pilot_data.csv")
 ## Prepare for sequential analysis
 ### Use only response data
 ```{r}
-raw_data = source_data %>% 
-  filter(task == "response")
+raw_data = pilot_sample %>% 
+  filter(task == "response") %>% 
+  filter(block != "practice")
 ```
 
 ### Check all the conditions with mean RT
@@ -65,22 +76,50 @@ raw_rt = raw_data %>%
 ```
 
 ```{r}
-raw_accuracy = raw_data
+raw_accuracy = raw_data %>% 
+  filter(previous_correct == "true") %>% 
+  mutate(acc = ifelse(correct=="true", 1,0))
+```
+--------------------
+### Outlier detection
+```{r}
+rt_conditional_means = raw_rt %>% 
+  group_by(id,congruency, previous_congruency) %>% 
+  summarize(conditional_mean = mean(as.numeric(rt), na.rm = T),
+            conditional_sd = sd(as.numeric(rt), na.rm=T))
+  
+raw_rt = raw_rt %>% 
+  left_join(.,rt_conditional_means, by=c("id","congruency","previous_congruency"))
+
+
+raw_rt = raw_rt %>% 
+  mutate(rt = as.numeric(rt))
+
+raw_rt = raw_rt %>% 
+  mutate(rt_z = (rt-conditional_mean)/conditional_sd) %>% 
+  mutate(drop_outlier = ifelse(abs(rt_z)>=3,1,0))
+
+
+filtered_rt = raw_rt %>% 
+  filter(drop_outlier == 0)
 ```
 
-### Check cse without outlier detection
+
+
 ```{r}
-cse_data = raw_rt %>% 
+### Check cse without outlier detection```{r}
+cse_rt_data = filtered_rt %>% 
   group_by(congruency, previous_congruency) %>% 
   summarize(N = n(),
             mean_rt = mean(as.numeric(rt), na.rm = T),
             sd_rt = sd(rt, na.rm = T),
             se_rt = sd_rt/sqrt(N))
 ```
+
 ```{r}
-cse_plot = cse_data %>% 
+cse_rt_plot = cse_rt_data %>% 
   ggplot()+
-  aes(x=factor(previous_congruency, level=c("no_conflict","low_conflict")), y=mean_rt, color=congruency, group=congruency)+
+  aes(x=factor(previous_congruency, level=c("no_conflict","low_conflict", "high_conflict")), y=mean_rt, color=congruency, group=congruency)+
   geom_point(size=2)+
   geom_path(size=1)+
   geom_errorbar(size=1,aes(ymin=mean_rt-se_rt,
@@ -94,13 +133,57 @@ cse_plot = cse_data %>%
 
 
 
-cse_plot
+cse_rt_plot
 ```
 
 ```{r}
-mymodel = lmer(as.numeric(rt) ~ congruency * previous_congruency + (1|id), data=raw_rt)
+mymodel = lmer(rt ~ congruency * previous_congruency + (1|id), data=filtered_rt)
 summary(mymodel)
 anova(mymodel)
+
+no_interaction_model = lmer(rt ~ congruency + previous_congruency + (1|id), data=filtered_rt)
+anova(no_interaction_model)
+
+anova(no_interaction_model, mymodel)
+
+no_effect_model = lmer(rt ~ (1|id), data=filtered_rt)
+
+summary(no_effect_model)
 ```
+# Accuracy analysis with plot
+```{r}
+cse_acc_data = raw_accuracy %>% 
+  group_by(congruency, previous_congruency) %>% 
+  summarize(N = n(),
+            mean_acc = mean(acc, na.rm = T),
+            sd_acc = sd(acc, na.rm = T),
+            se_acc = sd_acc/sqrt(N))
+```
+```{r}
+cse_acc_plot = cse_acc_data %>% 
+  ggplot()+
+  aes(x=factor(previous_congruency, level=c("no_conflict","low_conflict","high_conflict")), y=mean_acc, color=congruency, group=congruency)+
+  geom_point(size=2)+
+  geom_path(size=1)+
+  geom_errorbar(size=1,aes(ymin=mean_acc-se_acc,
+                    ymax=mean_acc+se_acc,
+                    width=.2))+
+  papaja::theme_apa()+
+  labs(x="Previous Congruency",
+       y= "Mean accuracy",
+       color="Current Congruency",
+       title="Pilot CSE plot - Accuracy")
 
 
+
+cse_acc_plot
+```
+```{r}
+mymodel_acc = lmer(acc ~ congruency * previous_congruency + (1|id), data=raw_accuracy)
+summary(mymodel_acc)
+anova(mymodel_acc)
+```
+```{r}
+pairwise_t_test(filter(raw_accuracy, congruency=="low_conflict"), acc ~ previous_congruency, p.adjust.method = "bonferroni")
+pairwise_t_test(filter(raw_accuracy, congruency=="no_conflict"), acc ~ previous_congruency, p.adjust.method = "bonferroni")
+```
