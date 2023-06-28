@@ -13,20 +13,22 @@ library(papaja)
 library(lme4)
 library(lmerTest)
 library(rstatix)
+library(BayesFactor)
+library(readtext)
 ```
 
 ## Loading data
 ```{r}
-source_data = read.csv("data/082_hungarian_source.csv")
+hun_data = read_csv("data/hun_data.csv")
+it_data = read_csv("data/it_data.txt")
 
+source_data = rbind(hun_data,it_data)
 source_data = source_data %>% 
   group_by(participant_id) %>% 
   mutate(id = cur_group_id()) %>% 
   ungroup()
 
-pilot_sample = source_data %>% 
-  filter(id<16)
-  
+
 ```
 
 ## Demographic analysis
@@ -35,9 +37,11 @@ pilot_sample = source_data %>%
 ## Prepare for sequential analysis
 ### Use only response data
 ```{r}
-raw_data = pilot_sample %>% 
-  filter(task == "response") %>% 
-  filter(block != "practice")
+raw_data = source_data %>%
+  filter(is.na(block)) %>%
+  filter(task == "response")
+  
+
 ```
 
 ### Check all the conditions with mean RT
@@ -70,15 +74,15 @@ raw_data = raw_data %>%
 ### Create rt and accuracy data
 ```{r}
 raw_rt = raw_data %>% 
-  filter(correct == "true",
-         previous_correct == "true",
+  filter(correct == T,
+         previous_correct == T,
          previous_rt > 0)
 ```
 
 ```{r}
 raw_accuracy = raw_data %>% 
-  filter(previous_correct == "true") %>% 
-  mutate(acc = ifelse(correct=="true", 1,0))
+  filter(previous_correct == T) %>% 
+  mutate(acc = ifelse(correct==T, 1,0))
 ```
 --------------------
 ### Outlier detection
