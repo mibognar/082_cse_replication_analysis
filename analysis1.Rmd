@@ -5,7 +5,6 @@ date: "2023-01-13"
 output: html_document
 ---
 
-# Source to raw
 ## Load packages for this section
 ```{r message=F}
 library(tidyverse)
@@ -17,10 +16,10 @@ library(BayesFactor)
 library(jsonlite)
 ```
 
-## Loading data
+## Loading source data
 ```{r}
-hun_data = read_csv("data/hun_data.txt")
-it_data = read_csv("data/it_data_fixed.txt")
+hun_data = read_csv("data/hun_data.csv")
+it_data = read_csv("data/it_data.txt")
 
 source_data = rbind(hun_data,it_data)
 source_data = source_data %>% 
@@ -41,13 +40,31 @@ demographic = source_data %>%
   select(response) 
 
 survey_data = purrr::map(demographic$response, jsonlite::fromJSON)
-as.data.frame(survey_data)
+survey_data <- tibble(survey_data)  %>% 
+  unnest_wider(survey_data)
+survey_data = survey_data %>%
+  mutate(sex = ifelse(nem %in% c("Nő","Femmina"), 1,0))
+
+count(survey_data)
+sum(survey_data$sex == 1)/count(survey_data)
+```
+## Anonimize dataframe
+```{r}
+raw_data = source_data %>% 
+  filter(!(task %in% c("survey","consent")))
+
+write_csv(raw_data,"data/zhang_replication_data.csv")
+```
+
+# Load anonimized data (START HERE)
+```{r}
+raw_data = read_csv("data/zhang_replication_data.csv")
 ```
 
 ## Prepare for sequential analysis
 ### Flag first trials in a block
 ```{r}
-raw_data = source_data %>% 
+raw_data = raw_data %>% 
   mutate(first_trial = ifelse(lag(task,2) %in% c("pause_practice","pause"),1,0))
 ```
 
@@ -165,6 +182,11 @@ freq_aov
 ```
 
 
+```{r}
+ezANOVA(data=subject_condition_data, dv=mean_rt, wid=id, within = .(congruency,previous_congruency))
+```
+
+
 
 ```{r}
 library(bayestestR)
@@ -178,7 +200,7 @@ anova(no_interaction_model)
 
 anova(no_interaction_model, interaction_model)
 
-easystats::bayesfactor_models(no_interaction_model, interaction_model)
+
 comparision = bayesfactor_models(no_interaction_model, interaction_model)
 comparision
 ```
