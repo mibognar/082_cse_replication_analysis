@@ -235,8 +235,16 @@ cse_acc_plot
 ```
 ```{r}
 mymodel_acc = lmer(acc ~ congruency * previous_congruency + (1|id), data=raw_accuracy)
+
 summary(mymodel_acc)
 anova(mymodel_acc)
+
+reduced_model = lmer(acc ~ congruency + previous_congruency + (1|id), data = raw_accuracy)
+anova(reduced_model)
+
+anova(reduced_model,mymodel_acc)
+
+bayesfactor_models(reduced_model, mymodel_acc)
 ```
 ```{r}
 pairwise_t_test(filter(raw_accuracy, congruency=="low_conflict"), acc ~ previous_congruency, p.adjust.method = "bonferroni")
