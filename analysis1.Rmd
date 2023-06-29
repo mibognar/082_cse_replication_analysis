@@ -14,13 +14,13 @@ library(lme4)
 library(lmerTest)
 library(rstatix)
 library(BayesFactor)
-library(readtext)
+library(jsonlite)
 ```
 
 ## Loading data
 ```{r}
-hun_data = read_csv("data/hun_data.csv")
-it_data = read_csv("data/it_data.txt")
+hun_data = read_csv("data/hun_data.txt")
+it_data = read_csv("data/it_data_fixed.txt")
 
 source_data = rbind(hun_data,it_data)
 source_data = source_data %>% 
@@ -31,15 +31,32 @@ source_data = source_data %>%
 
 ```
 
+
 ## Demographic analysis
 ---------------------------
+```{r}
+
+demographic = source_data %>% 
+  filter(task == "survey") %>% 
+  select(response) 
+
+survey_data = purrr::map(demographic$response, jsonlite::fromJSON)
+as.data.frame(survey_data)
+```
 
 ## Prepare for sequential analysis
-### Use only response data
+### Flag first trials in a block
 ```{r}
-raw_data = source_data %>%
+raw_data = source_data %>% 
+  mutate(first_trial = ifelse(lag(task,2) %in% c("pause_practice","pause"),1,0))
+```
+
+### Use only response data, exclude practice trials and first trials in every block
+```{r}
+raw_data = raw_data %>%
   filter(is.na(block)) %>%
-  filter(task == "response")
+  filter(task == "response") %>% 
+  filter(first_trial == 0)
   
 
 ```
@@ -49,15 +66,9 @@ raw_data = source_data %>%
 raw_data %>% 
   group_by(congruency) %>% 
   summarize(N = n(),
-            mean_rt = mean(as.numeric(rt), na.rm = T)) %>% 
-  ungroup()
-```
-
-### Create a numeric id from 
-```{r}
-raw_data = raw_data %>%
-  group_by(participant_id) %>% 
-  mutate(id = cur_group_id()) %>% 
+            mean_rt = mean(as.numeric(rt), na.rm = T),
+            sd_rt = sd(as.numeric(rt), na.rm = T),
+            se_rt = sd_rt/sqrt(N)) %>% 
   ungroup()
 ```
 
@@ -138,21 +149,38 @@ cse_rt_plot = cse_rt_data %>%
 
 
 cse_rt_plot
+ggsave("cse_plot.png",plot=cse_rt_plot, width = 1600, height = 900, units = "px", dpi = 200)
+```
+## Frequentist Anova
+```{r}
+subject_condition_data = filtered_rt %>% 
+  group_by(id, congruency,previous_congruency) %>% 
+  summarize(mean_rt = mean(rt, na.rm = T)) %>% 
+  ungroup()
 ```
 
 ```{r}
-mymodel = lmer(rt ~ congruency * previous_congruency + (1|id), data=filtered_rt)
-summary(mymodel)
-anova(mymodel)
+freq_aov = anova_test(data = subject_condition_data, formula = mean_rt ~ congruency * previous_congruency + Error(id/(congruency * previous_congruency)))
+freq_aov
+```
+
+
+
+```{r}
+library(bayestestR)
+interaction_model = lmer(rt ~ congruency * previous_congruency + (1|id), data=filtered_rt)
+summary(interaction_model)
+anova(interaction_model)
 
 no_interaction_model = lmer(rt ~ congruency + previous_congruency + (1|id), data=filtered_rt)
+
 anova(no_interaction_model)
 
-anova(no_interaction_model, mymodel)
+anova(no_interaction_model, interaction_model)
 
-no_effect_model = lmer(rt ~ (1|id), data=filtered_rt)
-
-summary(no_effect_model)
+easystats::bayesfactor_models(no_interaction_model, interaction_model)
+comparision = bayesfactor_models(no_interaction_model, interaction_model)
+comparision
 ```
 # Accuracy analysis with plot
 ```{r}
@@ -160,21 +188,22 @@ cse_acc_data = raw_accuracy %>%
   group_by(congruency, previous_congruency) %>% 
   summarize(N = n(),
             mean_acc = mean(acc, na.rm = T),
+            error_rate = 1-mean_acc,
             sd_acc = sd(acc, na.rm = T),
             se_acc = sd_acc/sqrt(N))
 ```
 ```{r}
 cse_acc_plot = cse_acc_data %>% 
   ggplot()+
-  aes(x=factor(previous_congruency, level=c("no_conflict","low_conflict","high_conflict")), y=mean_acc, color=congruency, group=congruency)+
+  aes(x=factor(previous_congruency, level=c("no_conflict","low_conflict","high_conflict")), y=error_rate, color=congruency, group=congruency)+
   geom_point(size=2)+
   geom_path(size=1)+
-  geom_errorbar(size=1,aes(ymin=mean_acc-se_acc,
-                    ymax=mean_acc+se_acc,
+  geom_errorbar(size=1,aes(ymin=error_rate-se_acc,
+                    ymax=error_rate+se_acc,
                     width=.2))+
   papaja::theme_apa()+
   labs(x="Previous Congruency",
-       y= "Mean accuracy",
+       y= "Mean error_rate",
        color="Current Congruency",
        title="Pilot CSE plot - Accuracy")
 

@@ -25,10 +25,10 @@ def fix_csv(file_path):
             line_start = i+1
 
 
-    with open("data/it_data.txt", 'w') as file:
+    with open("data/it_data_fixed.txt", 'w') as file:
         file.write(fixed_content)
 
 # Example usage
-csv_file_path = 'data/jatos_results_data_20230626190145.txt'
+csv_file_path = 'data/it_data.txt'
 fix_csv(csv_file_path)
 print("CSV file has been fixed!")
