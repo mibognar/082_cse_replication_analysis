@@ -212,6 +212,91 @@ anova(no_interaction_model, interaction_model)
 comparision = bayesfactor_models(no_interaction_model, interaction_model)
 comparision
 ```
+Dienes-way bayes factor
+```{r}
+filtered_rt = filtered_rt %>% 
+  mutate(prev_num = case_when(previous_congruency == "no_conflict" ~ 0,
+                              previous_congruency == "low_conflict" ~ 1,
+                              TRUE ~ 2),
+         current_num = case_when(congruency == "no_conflict" ~ 0,
+                              congruency == "low_conflict" ~ 1,
+                              TRUE ~ 2))
+```
+
+```{r}
+numeric_interaction_model = lmer(rt ~ prev_num * current_num + (1|id), data=filtered_rt)
+summary(numeric_interaction_model)
+
+numeric_model = summary(numeric_interaction_model)
+numeric_model
+```
+```{r}
+source("dienes_bayes.R")
+Bf(sd = numeric_model$coefficients[8], obtained = numeric_model$coefficients[4]*-1, likelihood = "normal",
+modeloftheory= "normal", modeoftheory = 0,
+scaleoftheory = numeric_model$coefficients[1], tail = 1, method = "new")
+```
+
+robustness region
+```{r}
+h1_range = seq(from=0.1,to=2000,by=0.1)
+range_test <- Bf_range(numeric_model$coefficients[8], numeric_model$coefficients[4]*-1,
+likelihood = "normal",
+modeloftheory = "normal",
+modeoftheory=0,
+sdtheoryrange= h1_range,
+tail=1, method = "new")
+# find values for which BF > 3
+ev_for_h1 <- subset(data.frame(range_test), BF > 3)
+low_threshold <- min(ev_for_h1$sdtheory)
+high_threshold <- max(ev_for_h1$sdtheory)
+```
+
+
+```{r}
+print(low_threshold)
+```
+
+```{r}
+print(high_threshold)
+```
+## Crucial 2x3 mixed effect model
+
+```{r}
+crucial_model_data = filtered_rt %>% 
+  filter(prev_num>0) %>% 
+  mutate(prev_num = case_when(prev_num == 1 ~ 0,
+                   T ~ 1))
+
+crucial_model_summary = crucial_model_data %>% 
+  group_by(prev_num, current_num) %>% 
+  summarize(meanrt = mean(rt, na.rm=T))
+
+crucial_numeric_interaction_model = lmer(rt ~ prev_num * current_num + (1|id), data=crucial_model_data)
+summary(crucial_numeric_interaction_model)
+
+crucial_numeric_model = summary(crucial_numeric_interaction_model)
+crucial_numeric_model
+```
+### BF for crucial model
+```{r}
+Bf(sd = crucial_numeric_model$coefficients[8], obtained = crucial_numeric_model$coefficients[4]*-1, likelihood = "normal",
+modeloftheory= "normal", modeoftheory = 0,
+scaleoftheory = crucial_numeric_model$coefficients[1], tail = 1, method = "new")
+```
+robustness region
+```{r}
+range_test <- Bf_range(crucial_numeric_model$coefficients[8], crucial_numeric_model$coefficients[4]*-1,
+likelihood = "normal",
+modeloftheory = "normal",
+modeoftheory=0,
+sdtheoryrange= h1_range,
+tail=1, method = "new")
+# find values for which BF > 3
+crucial_ev_for_h1 <- subset(data.frame(range_test), BF > 3)
+crucial_low_threshold <- min(crucial_ev_for_h1$sdtheory)
+crucial_high_threshold <- max(crucial_ev_for_h1$sdtheory)
+```
 # Accuracy analysis with plot
 ```{r}
 cse_acc_data = raw_accuracy %>% 
