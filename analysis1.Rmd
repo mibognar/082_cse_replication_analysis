@@ -14,6 +14,7 @@ library(lmerTest)
 library(rstatix)
 library(BayesFactor)
 library(jsonlite)
+library(ez)
 ```
 
 ## Loading source data
@@ -184,6 +185,13 @@ freq_aov
 
 ```{r}
 ezANOVA(data=subject_condition_data, dv=mean_rt, wid=id, within = .(congruency,previous_congruency))
+```
+2x3 ANOVA
+```{r}
+reduced_anova_data = subject_condition_data %>% 
+  filter(previous_congruency %in% c("low_conflict","high_conflict"))
+
+ezANOVA(data=reduced_anova_data, dv=mean_rt, wid=id, within = .(congruency,previous_congruency))
 ```
 
 
