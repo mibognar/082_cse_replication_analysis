@@ -1,4 +1,5 @@
 import re
+import sys
 
 def fix_csv(file_path):
     with open(file_path, 'r') as file:
@@ -25,10 +26,10 @@ def fix_csv(file_path):
             line_start = i+1
 
 
-    with open("data/it_data_fixed.txt", 'w') as file:
+    with open(sys.argv[2], 'x') as file:
         file.write(fixed_content)
 
 # Example usage
-csv_file_path = 'data/it_data.txt'
+csv_file_path = sys.argv[1]
 fix_csv(csv_file_path)
 print("CSV file has been fixed!")

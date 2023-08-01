@@ -19,10 +19,14 @@ library(ez)
 
 ## Loading source data
 ```{r}
-hun_data = read_csv("data/hun_data.csv")
-it_data = read_csv("data/it_data.txt")
+hun_data = read_csv("data/hun_data.txt") %>% 
+  mutate(site = "hungary")
+it_data = read_csv("data/it_data_fixed.txt") %>% 
+  mutate(site = "italy")
+sin_data = read_csv("data/sin_data_fixed.txt") %>% 
+  mutate(site = "singapore")
 
-source_data = rbind(hun_data,it_data)
+source_data = rbind(hun_data,it_data, sin_data)
 source_data = source_data %>% 
   group_by(participant_id) %>% 
   mutate(id = cur_group_id()) %>% 
@@ -38,16 +42,20 @@ source_data = source_data %>%
 
 demographic = source_data %>% 
   filter(task == "survey") %>% 
-  select(response) 
+  select(response,site) 
 
 survey_data = purrr::map(demographic$response, jsonlite::fromJSON)
 survey_data <- tibble(survey_data)  %>% 
   unnest_wider(survey_data)
 survey_data = survey_data %>%
-  mutate(sex = ifelse(nem %in% c("Nő","Femmina"), 1,0))
+  mutate(sex = ifelse(nem %in% c("Nő","Femmina","Female"), 1,0))
 
 count(survey_data)
 sum(survey_data$sex == 1)/count(survey_data)
+
+demographic %>% 
+  group_by(site) %>% 
+  summarize(N = n())
 ```
 ## Anonimize dataframe
 ```{r}
@@ -148,6 +156,7 @@ cse_rt_data = filtered_rt %>%
             sd_rt = sd(rt, na.rm = T),
             se_rt = sd_rt/sqrt(N))
 ```
+
 
 ```{r}
 cse_rt_plot = cse_rt_data %>% 
