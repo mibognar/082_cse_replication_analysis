@@ -5,7 +5,7 @@ date: "2023-01-13"
 output: html_document
 ---
 
-## Load packages for this section
+# Load packages for this section
 ```{r message=F}
 library(tidyverse)
 library(papaja)
@@ -17,13 +17,13 @@ library(jsonlite)
 library(ez)
 ```
 
-## Loading source data
+# Loading source data
 ```{r}
-hun_data = read_csv("data/hun_data.txt") %>% 
+hun_data = read_csv("data/hun_data.csv") %>% 
   mutate(site = "hungary")
-it_data = read_csv("data/it_data_fixed.txt") %>% 
+it_data = read_csv("data/ita_data_fixed.csv") %>% 
   mutate(site = "italy")
-sin_data = read_csv("data/sin_data_fixed.txt") %>% 
+sin_data = read_csv("data/sing_data_fixed.csv") %>% 
   mutate(site = "singapore")
 
 source_data = rbind(hun_data,it_data, sin_data)
@@ -32,11 +32,14 @@ source_data = source_data %>%
   mutate(id = cur_group_id()) %>% 
   ungroup()
 
-
+source_data %>% 
+  group_by(id,site) %>%
+  count() %>% 
+  unique()
 ```
 
 
-## Demographic analysis
+# Demographic analysis
 ---------------------------
 ```{r}
 
@@ -70,14 +73,14 @@ write_csv(raw_data,"data/zhang_replication_data.csv")
 raw_data = read_csv("data/zhang_replication_data.csv")
 ```
 
-## Prepare for sequential analysis
-### Flag first trials in a block
+# Prepare for sequential analysis
+## Flag first trials in a block
 ```{r}
 raw_data = raw_data %>% 
   mutate(first_trial = ifelse(lag(task,2) %in% c("pause_practice","pause"),1,0))
 ```
 
-### Use only response data, exclude practice trials and first trials in every block
+## Use only response data, exclude practice trials and first trials in every block
 ```{r}
 raw_data = raw_data %>%
   filter(is.na(block)) %>%
@@ -87,7 +90,7 @@ raw_data = raw_data %>%
 
 ```
 
-### Check all the conditions with mean RT
+## Check all the conditions with mean RT
 ```{r}
 raw_data %>% 
   group_by(congruency) %>% 
@@ -98,7 +101,7 @@ raw_data %>%
   ungroup()
 ```
 
-### Create previous trial data
+## Create previous trial data
 ```{r}
 raw_data = raw_data %>% 
   arrange(participant_id, as.numeric(trial_index)) %>% 
@@ -108,7 +111,7 @@ raw_data = raw_data %>%
   
 ```
 
-### Create rt and accuracy data
+## Create rt and accuracy data
 ```{r}
 raw_rt = raw_data %>% 
   filter(correct == T,
@@ -121,8 +124,8 @@ raw_accuracy = raw_data %>%
   filter(previous_correct == T) %>% 
   mutate(acc = ifelse(correct==T, 1,0))
 ```
---------------------
-### Outlier detection
+
+## Outlier detection
 ```{r}
 rt_conditional_means = raw_rt %>% 
   group_by(id,congruency, previous_congruency) %>% 
@@ -144,11 +147,9 @@ raw_rt = raw_rt %>%
 filtered_rt = raw_rt %>% 
   filter(drop_outlier == 0)
 ```
-
-
-
+# ANALYSIS
+## Create plot data
 ```{r}
-### Check cse without outlier detection```{r}
 cse_rt_data = filtered_rt %>% 
   group_by(congruency, previous_congruency) %>% 
   summarize(N = n(),
@@ -156,8 +157,7 @@ cse_rt_data = filtered_rt %>%
             sd_rt = sd(rt, na.rm = T),
             se_rt = sd_rt/sqrt(N))
 ```
-
-
+## Plot current + previous conditions RT
 ```{r}
 cse_rt_plot = cse_rt_data %>% 
   ggplot()+
@@ -171,27 +171,31 @@ cse_rt_plot = cse_rt_data %>%
   labs(x="Previous Congruency",
        y= "Reaction time",
        color="Current Congruency",
-       title="Pilot CSE plot")
+       title="CSE plot")
 
 
 
 cse_rt_plot
 ggsave("cse_plot.png",plot=cse_rt_plot, width = 1600, height = 900, units = "px", dpi = 200)
 ```
-## Frequentist Anova
+
+## Frequentist Anova full factorial
+### Create data by participant and by conditions
 ```{r}
 subject_condition_data = filtered_rt %>% 
   group_by(id, congruency,previous_congruency) %>% 
   summarize(mean_rt = mean(rt, na.rm = T)) %>% 
   ungroup()
 ```
-
+### Create repeated measures formula and conduct anova
 ```{r}
 freq_aov = anova_test(data = subject_condition_data, formula = mean_rt ~ congruency * previous_congruency + Error(id/(congruency * previous_congruency)))
 freq_aov
+
+anova(freq_aov)
 ```
 
-
+### Same formula, different package
 ```{r}
 ezANOVA(data=subject_condition_data, dv=mean_rt, wid=id, within = .(congruency,previous_congruency))
 ```
@@ -269,6 +273,7 @@ print(low_threshold)
 ```{r}
 print(high_threshold)
 ```
+
 ## Crucial 2x3 mixed effect model
 
 ```{r}
@@ -306,6 +311,76 @@ crucial_ev_for_h1 <- subset(data.frame(range_test), BF > 3)
 crucial_low_threshold <- min(crucial_ev_for_h1$sdtheory)
 crucial_high_threshold <- max(crucial_ev_for_h1$sdtheory)
 ```
+
+# Increasing the level of conflict leads to conflict adaptation
+```{r}
+conflict_level_data = filtered_rt %>% 
+  mutate(is_congruent = case_when(congruency == "no_conflict" ~ 1,
+                                  T ~ 0),
+         is_prev_congruent = case_when(previous_congruency == "no_conflict"~ 1,
+                                       T~ 0))
+
+increased_conflict_data = conflict_level_data %>% 
+  filter(previous_congruency %in% c("low_conflict","high_conflict"))
+
+increased_conflict_data_means = increased_conflict_data %>% 
+   group_by(is_congruent, previous_congruency) %>% 
+  summarize(N = n(),
+            mean_rt = mean(as.numeric(rt), na.rm = T),
+            sd_rt = sd(rt, na.rm = T),
+            se_rt = sd_rt/sqrt(N))
+
+increased_conflict_data_means_plot = increased_conflict_data_means %>% 
+  ggplot()+
+  aes(x=factor(previous_congruency, levels = c("low_conflict","high_conflict")), y=mean_rt, color=as.factor(is_congruent), group=as.factor(is_congruent))+
+  geom_point(size=2)+
+  geom_path(size=1)+
+  geom_errorbar(size=1,aes(ymin=mean_rt-se_rt,
+                    ymax=mean_rt+se_rt,
+                    width=.2))+
+  papaja::theme_apa()+
+  labs(x="Previous Congruency",
+       y= "Reaction time",
+       color="Current Congruency",
+       title="Pilot CSE plot")
+
+increased_conflict_data_means_plot
+```
+```{r}
+conflict_level_model = lmer(rt ~ is_congruent*previous_congruency + (1|id), data = increased_conflict_data)
+summary(conflict_level_model)
+anova(conflict_level_model)
+
+
+```
+
+# General CSE plot
+```{r}
+cse_rt_data_no_levels = conflict_level_data %>% 
+  group_by(is_congruent, is_prev_congruent) %>% 
+  summarize(N = n(),
+            mean_rt = mean(as.numeric(rt), na.rm = T),
+            sd_rt = sd(rt, na.rm = T),
+            se_rt = sd_rt/sqrt(N))
+
+cse_rt_data_no_levels_plot = cse_rt_data_no_levels %>% 
+  ggplot()+
+  aes(x=as.factor(is_prev_congruent), y=mean_rt, color=as.factor(is_congruent), group=as.factor(is_congruent))+
+  geom_point(size=2)+
+  geom_path(size=1)+
+  geom_errorbar(size=1,aes(ymin=mean_rt-se_rt,
+                    ymax=mean_rt+se_rt,
+                    width=.2))+
+  papaja::theme_apa()+
+  labs(x="Previous Congruency",
+       y= "Reaction time",
+       color="Current Congruency",
+       title="Pilot CSE plot")
+
+cse_rt_data_no_levels_plot
+```
+
+
 # Accuracy analysis with plot
 ```{r}
 cse_acc_data = raw_accuracy %>% 
