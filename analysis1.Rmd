@@ -15,6 +15,7 @@ library(rstatix)
 library(BayesFactor)
 library(jsonlite)
 library(ez)
+source("dienes_bayes.R")
 ```
 
 # Loading source data
@@ -84,10 +85,18 @@ raw_data = raw_data %>%
 ```{r}
 raw_data = raw_data %>%
   filter(is.na(block)) %>%
-  filter(task == "response") %>% 
-  filter(first_trial == 0)
-  
+  filter(task == "response")
 
+all_response_data = raw_data
+```
+
+```{r}
+nrow(all_response_data %>% filter(first_trial == 0)) / nrow(all_response_data) -1
+```
+
+```{r}
+raw_data = raw_data %>% 
+  filter(first_trial == 0)
 ```
 
 ## Check all the conditions with mean RT
@@ -110,6 +119,13 @@ raw_data = raw_data %>%
          previous_correct = lag(correct))
   
 ```
+
+
+## Count excluded trials
+```{r}
+nrow(raw_data %>% filter(correct==T, previous_correct ==T)) / nrow(raw_data) - 1
+```
+
 
 ## Create rt and accuracy data
 ```{r}
@@ -146,8 +162,23 @@ raw_rt = raw_rt %>%
 
 filtered_rt = raw_rt %>% 
   filter(drop_outlier == 0)
+
+nrow(filtered_rt) / nrow(raw_rt) -1
 ```
+```{r}
+nrow(filtered_rt) / nrow(all_response_data) -1 
+```
+
 # ANALYSIS
+
+Original reaction times for different conflict levels
+- NC = 708ms
+- LC = 751ms
+- HC = 767ms
+
+mean congruency effect 29.5
+
+
 ## Create plot data
 ```{r}
 cse_rt_data = filtered_rt %>% 
@@ -161,71 +192,75 @@ cse_rt_data = filtered_rt %>%
 ```{r}
 cse_rt_plot = cse_rt_data %>% 
   ggplot()+
-  aes(x=factor(previous_congruency, level=c("no_conflict","low_conflict", "high_conflict")), y=mean_rt, color=congruency, group=congruency)+
-  geom_point(size=2)+
-  geom_path(size=1)+
+  aes(x=factor(previous_congruency, level=c("no_conflict","low_conflict", "high_conflict")), y=mean_rt, group=congruency)+
+  geom_point(size=3, aes(shape=congruency))+
+  geom_path(size=1, aes(linetype=congruency))+
+  scale_shape_manual(values=c(17,16,15), labels=c("NC","LC","HC"))+
+  scale_linetype_manual(values=c("solid", "dashed","dotted"), labels=c("NC","LC","HC"))+
   geom_errorbar(size=1,aes(ymin=mean_rt-se_rt,
                     ymax=mean_rt+se_rt,
                     width=.2))+
   papaja::theme_apa()+
   labs(x="Previous Congruency",
-       y= "Reaction time",
-       color="Current Congruency",
-       title="CSE plot")
+       y= "Reaction time (ms)",
+       shape="Current Congruency",
+       linetype="Current Congruency")+
+  scale_x_discrete(labels = c("NC","LC","HC"))
+
 
 
 
 cse_rt_plot
 ggsave("cse_plot.png",plot=cse_rt_plot, width = 1600, height = 900, units = "px", dpi = 200)
 ```
-
-## Frequentist Anova full factorial
-### Create data by participant and by conditions
+## Congruency effect plot data
 ```{r}
-subject_condition_data = filtered_rt %>% 
-  group_by(id, congruency,previous_congruency) %>% 
-  summarize(mean_rt = mean(rt, na.rm = T)) %>% 
-  ungroup()
+ce_rt_data = filtered_rt %>% 
+  group_by(congruency) %>% 
+  summarize(N = n(),
+            mean_rt = mean(as.numeric(rt), na.rm = T),
+            sd_rt = sd(rt, na.rm = T),
+            se_rt = sd_rt/sqrt(N))
+
+
 ```
-### Create repeated measures formula and conduct anova
+## Congruency effect plot
 ```{r}
-freq_aov = anova_test(data = subject_condition_data, formula = mean_rt ~ congruency * previous_congruency + Error(id/(congruency * previous_congruency)))
-freq_aov
+cs_rt_plot = ce_rt_data %>% 
+  ggplot()+
+  geom_col(width = 0.5)+
+  aes(x=factor(congruency, level=c("no_conflict","low_conflict", "high_conflict")), y=mean_rt, fill=congruency)+
+  geom_errorbar(size=.5,aes(ymin=mean_rt-se_rt,
+                    ymax=mean_rt+se_rt,
+                    width=.2))+
+  papaja::theme_apa()+
+  labs(x="Congruency",
+       y= "Reaction time (ms)",
+       fill = "Congruency")+
+  scale_x_discrete(labels = c("NC","LC","HC")) +
+  coord_cartesian(ylim = c(620,750))+
+  scale_fill_grey(
+  start = 0.2,
+  end = 0.8,
+  na.value = "red",
+  aesthetics = "fill",
+  labels = c("NC","LC","HC")
+)
 
-anova(freq_aov)
+cs_rt_plot
+ggsave("ce_plot.png",plot=cs_rt_plot, width = 1600, height = 900, units = "px", dpi = 200)
 ```
 
-### Same formula, different package
+## Main congruency effect data
+### Create main congruency labels
 ```{r}
-ezANOVA(data=subject_condition_data, dv=mean_rt, wid=id, within = .(congruency,previous_congruency))
+filtered_rt = filtered_rt %>% 
+  mutate(is_congruent = case_when(congruency %in% c("low_conflict","high_conflict") ~ 0,
+                                  T ~ 1),
+         is_prev_congruent = case_when(previous_congruency %in% c("low_conflict","high_conflict") ~ 0,
+                                  T ~ 1))
 ```
-2x3 ANOVA
-```{r}
-reduced_anova_data = subject_condition_data %>% 
-  filter(previous_congruency %in% c("low_conflict","high_conflict"))
-
-ezANOVA(data=reduced_anova_data, dv=mean_rt, wid=id, within = .(congruency,previous_congruency))
-```
-
-
-
-```{r}
-library(bayestestR)
-interaction_model = lmer(rt ~ congruency * previous_congruency + (1|id), data=filtered_rt)
-summary(interaction_model)
-anova(interaction_model)
-
-no_interaction_model = lmer(rt ~ congruency + previous_congruency + (1|id), data=filtered_rt)
-
-anova(no_interaction_model)
-
-anova(no_interaction_model, interaction_model)
-
-
-comparision = bayesfactor_models(no_interaction_model, interaction_model)
-comparision
-```
-Dienes-way bayes factor
+### Coding conditions numerically for linear regression 
 ```{r}
 filtered_rt = filtered_rt %>% 
   mutate(prev_num = case_when(previous_congruency == "no_conflict" ~ 0,
@@ -236,24 +271,50 @@ filtered_rt = filtered_rt %>%
                               TRUE ~ 2))
 ```
 
+### Create data by participant and by main congruency conditions
 ```{r}
-numeric_interaction_model = lmer(rt ~ prev_num * current_num + (1|id), data=filtered_rt)
-summary(numeric_interaction_model)
-
-numeric_model = summary(numeric_interaction_model)
-numeric_model
+subject_congruency_data = filtered_rt %>% 
+  group_by(id, is_congruent) %>% 
+  summarize(mean_rt = mean(rt, na.rm=T)) %>% 
+  ungroup()
+```
+### Analyze with frequentist anova
+```{r}
+main_congruency_aov = anova_test(data = subject_congruency_data, formula = mean_rt ~ is_congruent  + Error(id/is_congruent))
+main_congruency_aov
+```
+### Analyze with bayesian lmer
+```{r}
+main_congruency_model = lmer(rt ~ is_congruent + (1+is_congruent|id), data = filtered_rt)
+mcm_summary = summary(main_congruency_model)
+mcm_summary
 ```
 ```{r}
-source("dienes_bayes.R")
-Bf(sd = numeric_model$coefficients[8], obtained = numeric_model$coefficients[4]*-1, likelihood = "normal",
+{qqnorm(resid(main_congruency_model))
+qqline(resid(main_congruency_model))}
+```
+
+```{r}
+old_Bf(sd = mcm_summary$coefficients[4],
+   obtained = mcm_summary$coefficients[2]*-1,
+   dfdata = mcm_summary$coefficients[6],
+   meanoftheory = 0,
+   sdtheory =29.5,
+   dftheory = 10^10,
+   tail = 1)
+
+```
+
+
+```{r}
+Bf(sd = mcm_summary$coefficients[4], obtained = mcm_summary$coefficients[2]*-1, likelihood = "normal",
 modeloftheory= "normal", modeoftheory = 0,
-scaleoftheory = numeric_model$coefficients[1], tail = 1, method = "new")
+scaleoftheory = mcm_summary$coefficients[1], tail = 1, method = "new")
 ```
-
 robustness region
 ```{r}
-h1_range = seq(from=0.1,to=2000,by=0.1)
-range_test <- Bf_range(numeric_model$coefficients[8], numeric_model$coefficients[4]*-1,
+h1_range = seq(from=18501,to=18601,by=1)
+range_test <- Bf_range(mcm_summary$coefficients[4], mcm_summary$coefficients[2]*-1,
 likelihood = "normal",
 modeloftheory = "normal",
 modeoftheory=0,
@@ -261,8 +322,202 @@ sdtheoryrange= h1_range,
 tail=1, method = "new")
 # find values for which BF > 3
 ev_for_h1 <- subset(data.frame(range_test), BF > 3)
-low_threshold <- min(ev_for_h1$sdtheory)
-high_threshold <- max(ev_for_h1$sdtheory)
+low_threshold_mcm <- min(ev_for_h1$sdtheory) # 3.46
+high_threshold_mcm <- max(ev_for_h1$sdtheory) # 18546
+```
+## Main Conflict Level Effect data
+```{r}
+subject_main_cl_data = filtered_rt %>% 
+  group_by(id, congruency) %>% 
+  summarize(mean_rt = mean(rt, na.rm=T)) %>% 
+  ungroup()
+```
+### Analyze with frequentist anova
+```{r}
+main_cl_aov = anova_test(data = subject_main_cl_data, formula = mean_rt ~ congruency  + Error(id/(congruency)))
+main_cl_aov
+```
+
+### Analyze with bayesian lmer
+```{r}
+main_cl_model = lmer(rt ~ current_num + (1|id), data = filtered_rt)
+main_cl_summary = summary(main_cl_model)
+main_cl_summary
+```
+
+```{r}
+old_Bf(sd = main_cl_summary$coefficients[4],
+   obtained = main_cl_summary$coefficients[2],
+   dfdata = main_cl_summary$coefficients[6],
+   meanoftheory = 0,
+   sdtheory = 29.5,
+   dftheory = 10^10,
+   tail = 1)
+```
+```{r}
+mclm_low_range = seq(from=0.01,to=10,by=0.01)
+mclm_low_range_test <- Bf_range(main_cl_summary$coefficients[4], main_cl_summary$coefficients[2],
+likelihood = "normal",
+modeloftheory = "normal",
+modeoftheory=0,
+sdtheoryrange= mclm_low_range,
+tail=1, method = "new")
+# find values for which BF > 3
+ev_low_for_mclm <- subset(data.frame(mclm_low_range_test), BF > 3)
+low_threshold_mcsem <- min(ev_low_for_mclm$sdtheory) #2.05
+```
+
+```{r}
+mclm_hi_range = seq(from=10000,to=13000,by=1)
+mclm_hi_range_test <- Bf_range(main_cl_summary$coefficients[4], main_cl_summary$coefficients[2],
+likelihood = "normal",
+modeloftheory = "normal",
+modeoftheory=0,
+sdtheoryrange= mclm_hi_range,
+tail=1, method = "new")
+# find values for which BF > 3
+ev_hi_for_mclm <- subset(data.frame(mclm_hi_range_test), BF > 3)
+hi_threshold_mcsem <- max(ev_hi_for_mclm$sdtheory) #11109
+```
+
+
+```{r}
+Bf(sd = main_cl_summary$coefficients[4], obtained = main_cl_summary$coefficients[2], likelihood = "normal",
+modeloftheory= "normal", modeoftheory = 0,
+scaleoftheory = main_cl_summary$coefficients[1], tail = 1, method = "new")
+```
+
+## Main Congruency Sequence Effect data
+```{r}
+subject_main_cse_data = filtered_rt %>% 
+  group_by(id, is_congruent, is_prev_congruent) %>% 
+  summarize(mean_rt = mean(rt, na.rm=T)) %>% 
+  ungroup()
+```
+### Analyze with frequentist anova
+```{r}
+main_cse_aov = anova_test(data = subject_main_cse_data, formula = mean_rt ~ is_congruent*is_prev_congruent  + Error(id/(is_congruent*is_prev_congruent)))
+main_cse_aov
+```
+### Analyze with bayesian lmer
+```{r}
+main_cse_model = lmer(rt ~ is_congruent*is_prev_congruent + (1|id), data = filtered_rt)
+mcsem_summary = summary(main_cse_model)
+mcsem_summary
+```
+```{r}
+{qqnorm(resid(main_cse_model))
+qqline(resid(main_cse_model))}
+```
+
+### Bayes factor for interaction
+```{r}
+old_Bf(sd = mcsem_summary$coefficients[8],
+   obtained = mcsem_summary$coefficients[4]*-1,
+   dfdata = mcsem_summary$coefficients[12],
+   meanoftheory = 0,
+   sdtheory =14.75,
+   dftheory = 10^10,
+   tail = 1)
+```
+
+
+```{r}
+Bf(sd = mcsem_summary$coefficients[8],
+   obtained = mcsem_summary$coefficients[4]*-1,
+   likelihood = "normal",
+   modeloftheory= "normal",
+   modeoftheory = 0,
+   scaleoftheory = mcsem_summary$coefficients[1],
+   tail = 1,
+   method = "new")
+```
+### RR for interaction
+```{r}
+mcsem_low_range = seq(from=0.1,to=10,by=0.01)
+mcsem_low_range_test <- Bf_range(mcsem_summary$coefficients[8], mcsem_summary$coefficients[4]*-1,
+likelihood = "normal",
+modeloftheory = "normal",
+modeoftheory=0,
+sdtheoryrange= mcsem_low_range,
+tail=1, method = "new")
+# find values for which BF > 3
+ev_low_for_mcsem <- subset(data.frame(mcsem_low_range_test), BF > 3)
+low_threshold_mcsem <- min(ev_low_for_mcsem$sdtheory) #.18
+
+mcsem_hi_range = seq(from=5000,to=15000,by=10)
+mcsem_high_range_test <- Bf_range(mcsem_summary$coefficients[8], mcsem_summary$coefficients[4]*-1,
+likelihood = "normal",
+modeloftheory = "normal",
+modeoftheory=0,
+sdtheoryrange= mcsem_hi_range,
+tail=1, method = "new")
+ev_high_for_mcsem <- subset(data.frame(mcsem_high_range_test), BF > 3)
+high_threshold_mcsem <- max(ev_high_for_mcsem$sdtheory) #5670
+```
+
+## 3x3 interaction on conflict level
+### Frequentist Anova
+#### Create data by participant and by conditions
+```{r}
+subject_condition_data = filtered_rt %>% 
+  group_by(id, congruency,previous_congruency) %>% 
+  summarize(mean_rt = mean(rt, na.rm = T)) %>% 
+  ungroup()
+```
+### #Create repeated measures formula and conduct anova
+```{r}
+freq_aov = anova_test(data = subject_condition_data, formula = mean_rt ~ congruency * previous_congruency + Error(id/(congruency * previous_congruency)))
+freq_aov
+
+```
+
+### Same formula, different package
+```{r}
+ezANOVA(data=subject_condition_data, dv=mean_rt, wid=id, within = .(congruency,previous_congruency))
+```
+
+
+```{r}
+numeric_interaction_model = lmer(rt ~ prev_num * current_num + (1|id), data=filtered_rt)
+numeric_model = summary(numeric_interaction_model)
+numeric_model
+```
+
+```{r}
+old_Bf(sd = numeric_model$coefficients[8],
+   obtained = numeric_model$coefficients[4]*-1,
+   dfdata = numeric_model$coefficients[12],
+   meanoftheory = 0,
+   sdtheory =7.38,
+   dftheory = 10^10,
+   tail = 1)
+```
+
+```{r}
+Bf(sd = numeric_model$coefficients[8], obtained = numeric_model$coefficients[4]*-1, likelihood = "normal",
+modeloftheory= "normal", modeoftheory = 0,
+scaleoftheory = numeric_model$coefficients[1], tail = 1, method = "new")
+```
+
+```{r}
+{qqnorm(resid(numeric_interaction_model))
+qqline(resid(numeric_interaction_model))}
+```
+
+robustness region
+```{r}
+h1_range_3way_cse = seq(from=0.01,to=0.1,by=0.01)
+range_test_3way_cse <- Bf_range(numeric_model$coefficients[8], numeric_model$coefficients[4]*-1,
+likelihood = "normal",
+modeloftheory = "normal",
+modeoftheory=0,
+sdtheoryrange= h1_range_3way_cse,
+tail=1, method = "new")
+# find values for which BF > 3
+ev_for_h1_3way_cse <- subset(data.frame(range_test_3way_cse), BF > 3)
+low_threshold_3way_cse <- min(ev_for_h1_3way_cse$sdtheory) #0.07
+high_threshold_3way_cse <- max(ev_for_h1_3way_cse$sdtheory) #1996
 ```
 
 
@@ -274,7 +529,20 @@ print(low_threshold)
 print(high_threshold)
 ```
 
-## Crucial 2x3 mixed effect model
+## 2x3 interaction (LC-HC * NC-LC-HC)
+### data for anova
+```{r}
+twobythree_interaction_subject_data = filtered_rt %>% 
+  filter(prev_num>0) %>% 
+  group_by(id, congruency,previous_congruency) %>% 
+  summarize(mean_rt = mean(rt, na.rm = T)) %>% 
+  ungroup()
+```
+### anova
+```{r}
+twobythree_anova = anova_test(data = twobythree_interaction_subject_data, formula = mean_rt ~ congruency * previous_congruency + Error(id/(congruency * previous_congruency)))
+twobythree_anova
+```
 
 ```{r}
 crucial_model_data = filtered_rt %>% 
@@ -294,33 +562,39 @@ crucial_numeric_model
 ```
 ### BF for crucial model
 ```{r}
+old_Bf(sd = crucial_numeric_model$coefficients[8],
+   obtained = crucial_numeric_model$coefficients[4]*-1,
+   dfdata = crucial_numeric_model$coefficients[12],
+   meanoftheory = 0,
+   sdtheory =7.38,
+   dftheory = 10^10,
+   tail = 1)
+```
+
+
+```{r}
 Bf(sd = crucial_numeric_model$coefficients[8], obtained = crucial_numeric_model$coefficients[4]*-1, likelihood = "normal",
 modeloftheory= "normal", modeoftheory = 0,
 scaleoftheory = crucial_numeric_model$coefficients[1], tail = 1, method = "new")
 ```
 robustness region
 ```{r}
-range_test <- Bf_range(crucial_numeric_model$coefficients[8], crucial_numeric_model$coefficients[4]*-1,
+h1_range_twobythree_cse = seq(from=1000,to=10000,by=1)
+range_test_twobythree_cse <- Bf_range(crucial_numeric_model$coefficients[8], crucial_numeric_model$coefficients[4]*-1,
 likelihood = "normal",
 modeloftheory = "normal",
 modeoftheory=0,
-sdtheoryrange= h1_range,
+sdtheoryrange= h1_range_twobythree_cse,
 tail=1, method = "new")
 # find values for which BF > 3
-crucial_ev_for_h1 <- subset(data.frame(range_test), BF > 3)
-crucial_low_threshold <- min(crucial_ev_for_h1$sdtheory)
-crucial_high_threshold <- max(crucial_ev_for_h1$sdtheory)
+twobythree_cse_ev_for_h1 <- subset(data.frame(range_test_twobythree_cse), BF > 3)
+crucial_low_threshold <- min(twobythree_cse_ev_for_h1$sdtheory)#0.4
+crucial_high_threshold <- max(twobythree_cse_ev_for_h1$sdtheory) #1877
 ```
 
-# Increasing the level of conflict leads to conflict adaptation
+## Increasing the level of conflict leads to conflict adaptation
 ```{r}
-conflict_level_data = filtered_rt %>% 
-  mutate(is_congruent = case_when(congruency == "no_conflict" ~ 1,
-                                  T ~ 0),
-         is_prev_congruent = case_when(previous_congruency == "no_conflict"~ 1,
-                                       T~ 0))
-
-increased_conflict_data = conflict_level_data %>% 
+increased_conflict_data = filtered_rt %>% 
   filter(previous_congruency %in% c("low_conflict","high_conflict"))
 
 increased_conflict_data_means = increased_conflict_data %>% 
@@ -346,13 +620,117 @@ increased_conflict_data_means_plot = increased_conflict_data_means %>%
 
 increased_conflict_data_means_plot
 ```
+### anova data for congruency on low-high
 ```{r}
-conflict_level_model = lmer(rt ~ is_congruent*previous_congruency + (1|id), data = increased_conflict_data)
-summary(conflict_level_model)
-anova(conflict_level_model)
+subject_data_congruency_by_two = increased_conflict_data %>% 
+  group_by(id, is_congruent, previous_congruency) %>% 
+  summarize(N = n(),
+            mean_rt = mean(as.numeric(rt), na.rm = T)) %>% 
+  ungroup()
+```
+### anova for congruency on low-high
+```{r}
+congruency_by_two_anova = anova_test(data = subject_data_congruency_by_two, formula = mean_rt ~is_congruent * previous_congruency + Error(id/(is_congruent * previous_congruency)))
+congruency_by_two_anova
+```
+### lmer for same model
+```{r}
+congruency_by_two_model = lmer(rt ~ prev_num * is_congruent + (1|id), data=increased_conflict_data)
+cbt_model = summary(congruency_by_two_model)
+cbt_model
+```
 
+```{r}
+old_Bf(sd = cbt_model$coefficients[8],
+   obtained = cbt_model$coefficients[4],
+   dfdata = cbt_model$coefficients[12],
+   meanoftheory = 0,
+   sdtheory =14.75,
+   dftheory = 10^10,
+   tail = 1)
 
 ```
+### Robustness region
+```{r}
+h1_range_bytwo = seq(from=0.01,to=1,by=0.01)
+range_test_bytwo <- Bf_range(cbt_model$coefficients[8], cbt_model$coefficients[4],
+likelihood = "normal",
+modeloftheory = "normal",
+modeoftheory=0,
+sdtheoryrange= h1_range_bytwo,
+tail=1, method = "new")
+# find values for which BF > 3
+bytwo_cse_ev_for_h1 <- subset(data.frame(range_test_bytwo), BF > 3)
+bytwo_low_threshold <- min(bytwo_cse_ev_for_h1$sdtheory)#0.55
+bytwo_high_threshold <- max(bytwo_cse_ev_for_h1$sdtheory) #3078
+```
+
+## exploratory 2x2 on lohi-lohi
+```{r}
+lohi_subject_data = filtered_rt %>% 
+  filter(prev_num>0,
+         current_num>0) %>% 
+  group_by(id, congruency,previous_congruency) %>% 
+  summarize(mean_rt = mean(rt, na.rm = T)) %>% 
+  ungroup()
+```
+### lohi anova
+```{r}
+lohi_anova = anova_test(data = lohi_subject_data, formula = mean_rt ~ congruency * previous_congruency + Error(id/(congruency * previous_congruency)))
+lohi_anova
+```
+
+### lohi model data
+```{r}
+lohi_model_data = filtered_rt %>% 
+  filter(prev_num>0,
+         current_num>0) %>% 
+  mutate(prev_num = case_when(prev_num == 1 ~ 0,
+                   T ~ 1),
+         current_num = case_when(current_num == 1 ~ 0,
+                   T ~ 1)
+         )
+```
+
+```{r}
+lohi_interaction_model = lmer(rt ~ prev_num * current_num + (1|id), data=lohi_model_data)
+lohi_model = summary(lohi_interaction_model)
+lohi_model
+```
+```{r}
+Bf(sd = lohi_model$coefficients[8], obtained = lohi_model$coefficients[4], likelihood = "normal",
+modeloftheory= "normal", meanoftheory = 0,
+scaleoftheory = 14.75, tail = 1, method = "new")
+```
+```{r}
+old_Bf(sd = lohi_model$coefficients[8],
+   obtained = lohi_model$coefficients[4],
+   dfdata = lohi_model$coefficients[12],
+   meanoftheory = 0,
+   sdtheory =14.75,#9.7,
+   dftheory = 10^10,
+   tail = 1)
+
+```
+
+
+```{r}
+loh_range = seq(from=1,to=10000,by=1)
+range_test_lohi <- Bf_range(lohi_model$coefficients[8], lohi_model$coefficients[4],
+likelihood = "normal",
+modeloftheory = "normal",
+modeoftheory=0,
+sdtheoryrange= loh_range,
+tail=1, method = "new")
+# find values for which BF > 3
+bytwo_cse_ev_for_h1 <- subset(data.frame(range_test_bytwo), BF > 3)
+bytwo_low_threshold <- min(bytwo_cse_ev_for_h1$sdtheory)#0.55
+bytwo_high_threshold <- max(bytwo_cse_ev_for_h1$sdtheory) #3078
+```
+
+
+
+
 
 # General CSE plot
 ```{r}
