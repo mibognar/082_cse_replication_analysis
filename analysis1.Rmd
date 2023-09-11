@@ -192,12 +192,13 @@ cse_rt_data = filtered_rt %>%
 ```{r}
 cse_rt_plot = cse_rt_data %>% 
   ggplot()+
-  aes(x=factor(previous_congruency, level=c("no_conflict","low_conflict", "high_conflict")), y=mean_rt, group=congruency)+
-  geom_point(size=3, aes(shape=congruency))+
+  aes(x=factor(previous_congruency, level=c("no_conflict","low_conflict", "high_conflict")), y=mean_rt, group=factor(congruency,level=c("no_conflict","low_conflict", "high_conflict")))+
+  geom_point(size=1.5)+
   geom_path(size=1, aes(linetype=congruency))+
-  scale_shape_manual(values=c(17,16,15), labels=c("NC","LC","HC"))+
-  scale_linetype_manual(values=c("solid", "dashed","dotted"), labels=c("NC","LC","HC"))+
-  geom_errorbar(size=1,aes(ymin=mean_rt-se_rt,
+  
+  #scale_shape_manual(values=c(17,16,15), labels=c("High-conflict","Low-conflict","No-conflict"))+
+  scale_linetype_manual(values=c("solid", "dashed","dotted"), labels=c("High-conflict","Low-conflict","No-conflict"))+
+  geom_errorbar(size=0.5,aes(ymin=mean_rt-se_rt,
                     ymax=mean_rt+se_rt,
                     width=.2))+
   papaja::theme_apa()+
@@ -205,7 +206,8 @@ cse_rt_plot = cse_rt_data %>%
        y= "Reaction time (ms)",
        shape="Current Congruency",
        linetype="Current Congruency")+
-  scale_x_discrete(labels = c("NC","LC","HC"))
+  scale_x_discrete(labels = c("No-conflict","Low-conflict","High-conflict"))+
+  theme(legend.key.width = unit(2,"cm"))
 
 
 
@@ -226,27 +228,26 @@ ce_rt_data = filtered_rt %>%
 ```
 ## Congruency effect plot
 ```{r}
-cs_rt_plot = ce_rt_data %>% 
+cs_rt_plot = filtered_rt %>% 
   ggplot()+
-  geom_col(width = 0.5)+
-  aes(x=factor(congruency, level=c("no_conflict","low_conflict", "high_conflict")), y=mean_rt, fill=congruency)+
-  geom_errorbar(size=.5,aes(ymin=mean_rt-se_rt,
-                    ymax=mean_rt+se_rt,
-                    width=.2))+
+  geom_violin(, show.legend = F)+
+  aes(x=factor(congruency, level=c("no_conflict","low_conflict", "high_conflict")), y=rt, fill=factor(congruency, level=c("no_conflict","low_conflict", "high_conflict")),show.legend=F)+
+  #geom_errorbar(size=.5,aes(ymin=mean_rt-se_rt,
+                 #   ymax=mean_rt+se_rt,
+                  #  width=.2))+
   papaja::theme_apa()+
   labs(x="Congruency",
        y= "Reaction time (ms)",
        fill = "Congruency")+
-  scale_x_discrete(labels = c("NC","LC","HC")) +
-  coord_cartesian(ylim = c(620,750))+
+  scale_x_discrete(labels = c("No-conflict","Low-conflict","High-conflict")) +
+  coord_cartesian(ylim = c(400,900))+
   scale_fill_grey(
-  start = 0.2,
-  end = 0.8,
+  start = 0.8,
+  end = 0.2,
   na.value = "red",
   aesthetics = "fill",
-  labels = c("NC","LC","HC")
-)
-
+  labels = c("NC","LC","HC"))+
+  stat_summary(fun.y=mean, geom="point", shape=23, size=2)
 cs_rt_plot
 ggsave("ce_plot.png",plot=cs_rt_plot, width = 1600, height = 900, units = "px", dpi = 200)
 ```
@@ -271,6 +272,15 @@ filtered_rt = filtered_rt %>%
                               TRUE ~ 2))
 ```
 
+### Helmert contrast coding
+```{r}
+contrast_filtered_rt = filtered_rt %>% 
+  mutate(congruency_helmert=as.factor(current_num),
+         previous_congruency_helmert = as_factor(prev_num))
+contrasts(contrast_filtered_rt$congruency_helmert) = contr.helmert(3)
+contrasts(contrast_filtered_rt$previous_congruency_helmert) = contr.helmert(3)
+```
+
 ### Create data by participant and by main congruency conditions
 ```{r}
 subject_congruency_data = filtered_rt %>% 
@@ -278,6 +288,14 @@ subject_congruency_data = filtered_rt %>%
   summarize(mean_rt = mean(rt, na.rm=T)) %>% 
   ungroup()
 ```
+pivot for jasp
+```{r}
+subject_congruency_data_wide = subject_congruency_data %>% 
+  pivot_wider(names_from = "is_congruent", values_from = "mean_rt")
+
+write.csv(subject_congruency_data_wide, "data/subject_data_con.csv")
+```
+
 ### Analyze with frequentist anova
 ```{r}
 main_congruency_aov = anova_test(data = subject_congruency_data, formula = mean_rt ~ is_congruent  + Error(id/is_congruent))
@@ -340,7 +358,7 @@ main_cl_aov
 
 ### Analyze with bayesian lmer
 ```{r}
-main_cl_model = lmer(rt ~ current_num + (1|id), data = filtered_rt)
+main_cl_model = lmer(rt ~ congruency_helmert + (1|id), data = contrast_filtered_rt)
 main_cl_summary = summary(main_cl_model)
 main_cl_summary
 ```
@@ -401,9 +419,10 @@ main_cse_aov
 ```
 ### Analyze with bayesian lmer
 ```{r}
-main_cse_model = lmer(rt ~ is_congruent*is_prev_congruent + (1|id), data = filtered_rt)
+main_cse_model = lmer(rt ~ congruency_helmert*previous_congruency_helmert + (1|id), data = contrast_filtered_rt)
 mcsem_summary = summary(main_cse_model)
 mcsem_summary
+anova(main_cse_model)
 ```
 ```{r}
 {qqnorm(resid(main_cse_model))
