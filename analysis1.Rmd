@@ -5,28 +5,16 @@ date: "2023-01-13"
 output: html_document
 ---
 
-# Load packages for this section
+# Load packages 
 ```{r message=F}
 library(groundhog)
 groundhog.day = "2023-09-13"
 pkgs=c("tidyverse","papaja","lme4", "ggdist", "lmerTest", "emmeans", "ggeffects", "rstatix","BayesFactor", "jsonlite", "ez")
 groundhog.library(pkgs,groundhog.day)
-library(tidyverse)
-library(papaja)
-library(lme4)
-library(ggdist)
-library(lmerTest)
-library(emmeans)
-library(ggeffects)
-library(rstatix)
-library(BayesFactor)
-library(jsonlite)
-library(ez)
 source("dienes_bayes.R")
 ```
 ### Cite all packages
 ```{r}
-c("tidyverse","papaja","lme4", "ggdist", "lmerTest", "emmeans", "ggeffects", "rstatix","BayesFactor", "jsonlite", "ez")
 citation()
 citation("tidyverse")
 citation("papaja")
